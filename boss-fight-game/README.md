@@ -35,3 +35,4 @@ A real-time 2D browser arena boss-fight game where the boss's tactical combat de
 - **Attack**: `J` (stamina cost: 15)
 - **Block**: `K` (reduces damage by 80%, stamina cost on hit)
 - **Dash / Dodge**: `L` (invulnerability frames, stamina cost: 25, 1.2s cooldown)
+- **Pause Menu**: `Esc` / `P` (or click Pause button in HUD to access settings & graphics quality)

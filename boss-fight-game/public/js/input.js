@@ -5,6 +5,7 @@ class InputManager {
       left: false,
       right: false,
       jump: false,
+      down: false,
       attack: false,
       block: false,
       dash: false
@@ -13,7 +14,8 @@ class InputManager {
     this.justPressed = {
       jump: false,
       attack: false,
-      dash: false
+      dash: false,
+      pause: false
     };
 
     this._setupListeners();
@@ -65,6 +67,11 @@ class InputManager {
         this.keys.jump = isDown;
         break;
 
+      case 'KeyS':
+      case 'ArrowDown':
+        this.keys.down = isDown;
+        break;
+
       case 'KeyJ':
         if (isDown && !this.keys.attack) {
           this.justPressed.attack = true;
@@ -81,6 +88,13 @@ class InputManager {
           this.justPressed.dash = true;
         }
         this.keys.dash = isDown;
+        break;
+
+      case 'Escape':
+      case 'KeyP':
+        if (isDown) {
+          this.justPressed.pause = true;
+        }
         break;
     }
   }
@@ -99,6 +113,7 @@ class InputManager {
     this.justPressed.jump = false;
     this.justPressed.attack = false;
     this.justPressed.dash = false;
+    this.justPressed.pause = false;
   }
 }
 

@@ -3,22 +3,42 @@ class Player {
   constructor() {
     this.reset();
 
-    // Image asset handling
+    // Primary idle asset
     this.image = new Image();
     this.imageLoaded = false;
-    this.image.onload = () => {
-      this.imageLoaded = true;
-    };
-    this.image.onerror = () => {
-      this.imageLoaded = false;
-    };
+    this.image.onload = () => { this.imageLoaded = true; };
+    this.image.onerror = () => { this.imageLoaded = false; };
     this.image.src = CONFIG.ASSETS.PLAYER;
+
+    // Run animation strip
+    this.runImg = new Image();
+    this.runImgLoaded = false;
+    this.runImg.onload = () => { this.runImgLoaded = true; };
+    this.runImg.src = 'assets/characters/player_run.png';
+
+    // Attack animation strip
+    this.attackImg = new Image();
+    this.attackImgLoaded = false;
+    this.attackImg.onload = () => { this.attackImgLoaded = true; };
+    this.attackImg.src = 'assets/characters/player_attack.png';
+
+    // Jump animation strip
+    this.jumpImg = new Image();
+    this.jumpImgLoaded = false;
+    this.jumpImg.onload = () => { this.jumpImgLoaded = true; };
+    this.jumpImg.src = 'assets/characters/player_jump.png';
+
+    // Fall animation strip
+    this.fallImg = new Image();
+    this.fallImgLoaded = false;
+    this.fallImg.onload = () => { this.fallImgLoaded = true; };
+    this.fallImg.src = 'assets/characters/player_fall.png';
   }
 
   reset() {
     this.width = CONFIG.PLAYER.WIDTH;
     this.height = CONFIG.PLAYER.HEIGHT;
-    this.x = 120;
+    this.x = 80;
     this.y = CONFIG.FLOOR_Y - this.height;
     this.vx = 0;
     this.vy = 0;
@@ -156,10 +176,29 @@ class Player {
     // Apply Gravity and Vertical Velocity
     this.vy += CONFIG.GRAVITY * dt;
     this.x += this.vx * dt;
+    const prevY = this.y;
     this.y += this.vy * dt;
 
+    // Platform and floor collision
+    this.onGround = false;
+
+    // Check elevated platforms (one-way from above, unless pressing down)
+    if (CONFIG.PLATFORMS && this.vy >= 0 && !input.keys.down) {
+      for (const p of CONFIG.PLATFORMS) {
+        const feetPrev = prevY + this.height;
+        const feetCurr = this.y + this.height;
+        const inPlatformX = (this.x + this.width * 0.8 > p.x) && (this.x + this.width * 0.2 < p.x + p.width);
+        if (inPlatformX && feetPrev <= p.y + 22 && feetCurr >= p.y) {
+          this.y = p.y - this.height;
+          this.vy = 0;
+          this.onGround = true;
+          break;
+        }
+      }
+    }
+
     // Arena Floor collision
-    if (this.y >= CONFIG.FLOOR_Y - this.height) {
+    if (!this.onGround && this.y >= CONFIG.FLOOR_Y - this.height) {
       this.y = CONFIG.FLOOR_Y - this.height;
       this.vy = 0;
       this.onGround = true;
@@ -188,10 +227,10 @@ class Player {
     if (!this.isAttacking || this.hasHitThisAttack) return null;
     const range = CONFIG.PLAYER.ATTACK_RANGE;
     return {
-      x: this.facing === 1 ? this.x + this.width - 15 : this.x - range + 15,
-      y: this.y + 15,
+      x: this.facing === 1 ? this.x + this.width - 25 : this.x - range + 25,
+      y: this.y + 20,
       width: range,
-      height: this.height - 25
+      height: this.height - 35
     };
   }
 
@@ -239,24 +278,68 @@ class Player {
     if (this.isDashing) {
       ctx.save();
       ctx.fillStyle = 'rgba(56, 189, 248, 0.35)';
-      ctx.fillRect(this.x - this.facing * 20, this.y, this.width, this.height);
+      ctx.fillRect(this.x - this.facing * 30, this.y, this.width, this.height);
       ctx.restore();
     }
 
-    // Check if character sprite PNG exists and is loaded
-    const hasValidImage = this.imageLoaded && this.image.complete && this.image.naturalWidth > 0;
+    // Select active sprite based on player combat and movement state
+    let activeImg = this.image;
+    let isValid = this.imageLoaded && this.image.complete && this.image.naturalWidth > 0;
+    let frameRate = 130;
 
-    if (hasValidImage) {
+    if (this.isAttacking && this.attackImgLoaded && this.attackImg.complete && this.attackImg.naturalWidth > 0) {
+      activeImg = this.attackImg;
+      isValid = true;
+    } else if (!this.onGround) {
+      if (this.vy < 0 && this.jumpImgLoaded && this.jumpImg.complete && this.jumpImg.naturalWidth > 0) {
+        activeImg = this.jumpImg;
+        isValid = true;
+      } else if (this.vy >= 0 && this.fallImgLoaded && this.fallImg.complete && this.fallImg.naturalWidth > 0) {
+        activeImg = this.fallImg;
+        isValid = true;
+      } else if (this.jumpImgLoaded && this.jumpImg.complete && this.jumpImg.naturalWidth > 0) {
+        activeImg = this.jumpImg;
+        isValid = true;
+      }
+    } else if (Math.abs(this.vx) > 10 && this.runImgLoaded && this.runImg.complete && this.runImg.naturalWidth > 0) {
+      activeImg = this.runImg;
+      isValid = true;
+      frameRate = 85;
+    }
+
+    if (isValid) {
       ctx.save();
+      ctx.imageSmoothingEnabled = false; // Render crisp, distinct pixel art at 260x310
+
+      const nw = activeImg.naturalWidth;
+      const nh = activeImg.naturalHeight;
+      let sx = 0, sy = 0, sWidth = nw, sHeight = nh;
+
+      // Slicing animation frames for sprite strips
+      if (nw > nh * 1.3) {
+        const numFrames = Math.max(1, Math.round(nw / nh));
+        const frameW = nw / numFrames;
+        let currentFrame = 0;
+
+        if (this.isAttacking) {
+          const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / CONFIG.PLAYER.ATTACK_DURATION)));
+          currentFrame = Math.min(numFrames - 1, Math.floor(progress * numFrames));
+        } else {
+          currentFrame = Math.floor(Date.now() / frameRate) % numFrames;
+        }
+
+        sx = currentFrame * frameW;
+        sWidth = frameW;
+      }
+
       if (this.facing === -1) {
         ctx.scale(-1, 1);
-        ctx.drawImage(this.image, -this.x - this.width, this.y, this.width, this.height);
+        ctx.drawImage(activeImg, sx, sy, sWidth, sHeight, -this.x - this.width, this.y, this.width, this.height);
       } else {
-        ctx.drawImage(this.image, this.x, this.y, this.width, this.height);
+        ctx.drawImage(activeImg, sx, sy, sWidth, sHeight, this.x, this.y, this.width, this.height);
       }
       ctx.restore();
     } else {
-      // Fallback: draw sleek stylized warrior placeholder
       this._drawPlaceholder(ctx);
     }
 
@@ -279,57 +362,103 @@ class Player {
     // Body armor
     ctx.fillStyle = CONFIG.PLAYER.PLACEHOLDER_COLOR;
     ctx.beginPath();
-    ctx.roundRect(x + 10, y + 20, width - 20, height - 20, 6);
+    ctx.roundRect(x + 20, y + 40, width - 40, height - 40, 10);
     ctx.fill();
 
     // Helmet / Head
     ctx.fillStyle = '#60a5fa';
     ctx.beginPath();
-    ctx.roundRect(x + 14, y, width - 28, 22, 5);
+    ctx.roundRect(x + 35, y + 10, width - 70, 45, 8);
     ctx.fill();
 
     // Visor slit
     ctx.fillStyle = '#0f172a';
-    const visorX = facing === 1 ? x + width - 26 : x + 16;
-    ctx.fillRect(visorX, y + 8, 10, 4);
-
-    // Belt / detail
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(x + 10, y + height - 32, width - 20, 6);
+    const visorX = facing === 1 ? x + width - 55 : x + 35;
+    ctx.fillRect(visorX, y + 25, 20, 8);
 
     // Direction indicator eye/glow
     ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(visorX + (facing === 1 ? 4 : 0), y + 9, 3, 2);
+    ctx.fillRect(visorX + (facing === 1 ? 8 : 2), y + 27, 6, 4);
   }
 
   _drawAttackSlash(ctx) {
-    const slashX = this.facing === 1 ? this.x + this.width + 5 : this.x - 25;
-    const slashY = this.y + 15;
+    const slashX = this.facing === 1 ? this.x + this.width + 12 : this.x - 32;
+    const slashY = this.y + this.height * 0.38;
+    const startAngle = this.facing === 1 ? -0.9 : 2.2;
+    const endAngle = this.facing === 1 ? 0.9 : 4.0;
 
     ctx.save();
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 4;
     ctx.lineCap = 'round';
+
+    // 1. Ghost speed trails trailing behind the strike
+    ctx.strokeStyle = 'rgba(14, 165, 233, 0.22)';
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(slashX, slashY + 25, 30, this.facing === 1 ? -0.8 : 2.3, this.facing === 1 ? 0.8 : 3.9);
+    ctx.arc(slashX - this.facing * 24, slashY, 68, startAngle, endAngle);
     ctx.stroke();
 
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.38)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(slashX - this.facing * 12, slashY, 74, startAngle, endAngle);
+    ctx.stroke();
+
+    // 2. Wide outer celestial glow
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+    ctx.lineWidth = 20;
+    ctx.beginPath();
+    ctx.arc(slashX, slashY, 80, startAngle, endAngle);
+    ctx.stroke();
+
+    // 3. Razor cyan energy blade body
+    ctx.strokeStyle = '#00f0ff';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(slashX, slashY, 80, startAngle, endAngle);
+    ctx.stroke();
+
+    // 4. Pure white scorching cutting edge
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(slashX, slashY, 80, startAngle, endAngle);
+    ctx.stroke();
+
+    // 5. Radiant blade tip gleam starburst
+    const tipAngle = this.facing === 1 ? endAngle : startAngle;
+    const tipX = slashX + Math.cos(tipAngle) * 80;
+    const tipY = slashY + Math.sin(tipAngle) * 80;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#00f0ff';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(tipX, tipY, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cross star flare at blade tip
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(tipX - 9, tipY);
+    ctx.lineTo(tipX + 9, tipY);
+    ctx.moveTo(tipX, tipY - 9);
+    ctx.lineTo(tipX, tipY + 9);
     ctx.stroke();
+
     ctx.restore();
   }
 
   _drawShield(ctx) {
-    const shieldX = this.facing === 1 ? this.x + this.width - 5 : this.x - 15;
-    const shieldY = this.y + 18;
+    const shieldX = this.facing === 1 ? this.x + this.width - 15 : this.x + 15;
+    const shieldY = this.y + this.height * 0.35;
 
     ctx.save();
     ctx.fillStyle = 'rgba(56, 189, 248, 0.4)';
     ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(shieldX, shieldY + 25, 26, -1.2, 1.2, this.facing === -1);
+    ctx.arc(shieldX, shieldY, 55, -1.2, 1.2, this.facing === -1);
     ctx.fill();
     ctx.stroke();
     ctx.restore();
